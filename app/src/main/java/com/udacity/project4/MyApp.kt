@@ -41,7 +41,10 @@ class MyApp : MultiDexApplication() {
                     get() as ReminderDataSource
                 )
             }
-            single { RemindersLocalRepository(get()) } // required cast
+            single {
+                val dataSource: ReminderDataSource = RemindersLocalRepository(get())
+                dataSource // required cast
+            }
             single { LocalDB.createRemindersDao(this@MyApp) }
 
             worker {
