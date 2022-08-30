@@ -6,6 +6,8 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
 import android.location.Criteria
+import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
 import android.util.Log
@@ -24,6 +26,7 @@ import com.udacity.project4.databinding.FragmentSelectLocationBinding
 import com.udacity.project4.locationreminders.savereminder.SaveReminderViewModel
 import com.udacity.project4.utils.isPermissionGranted
 import org.koin.android.ext.android.inject
+import org.koin.androidx.viewmodel.ext.android.sharedStateViewModel
 
 class SelectLocationFragment : BaseFragment(), OnMapReadyCallback {
 
@@ -31,14 +34,9 @@ class SelectLocationFragment : BaseFragment(), OnMapReadyCallback {
     private lateinit var map: GoogleMap
     private var activeMark: Marker? = null
     private var activeCircle: Circle? = null
-    private val requestLocationLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) {
-        onPermissionResult(it)
-    }
 
     //Use Koin to get the view model of the SaveReminder
-    override val _viewModel: SaveReminderViewModel by inject()
+    override val _viewModel: SaveReminderViewModel by sharedStateViewModel()
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
@@ -113,14 +111,12 @@ class SelectLocationFragment : BaseFragment(), OnMapReadyCallback {
 
     @SuppressLint("MissingPermission")
     private fun enableMyLocationBtn(googleMap: GoogleMap) {
-        val granted = requireContext().isPermissionGranted(
-            Manifest.permission.ACCESS_FINE_LOCATION
-        )
+        val granted = isFineLocationGranted()
         if (granted) {
             googleMap.isMyLocationEnabled = true
             zoomToUserLocation()
         } else {
-            requestLocationLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            requestFineLocation()
         }
     }
 
@@ -133,23 +129,37 @@ class SelectLocationFragment : BaseFragment(), OnMapReadyCallback {
         locationManager.requestLocationUpdates(
             locationManager.getBestProvider(Criteria(), true) ?: LocationManager.GPS_PROVIDER,
             2000L,
-            20f
-        ) { location ->
-            Log.d(TAG, "Location Update Provided -> Lat: ${location.latitude}, Long: ${location.longitude}")
+            20f,
+            object : LocationListener {
+                override fun onLocationChanged(location: Location) {
+                    Log.d(TAG, "Location Update Provided -> Lat: ${location.latitude}, Long: ${location.longitude}")
 
-            map.animateCamera(
-                CameraUpdateFactory.newCameraPosition(
-                    CameraPosition.builder()
-                        .target(LatLng(location.latitude, location.longitude))
-                        .zoom(16f)
-                        .build()
-                )
-            )
-        }
+                    map.animateCamera(
+                        CameraUpdateFactory.newCameraPosition(
+                            CameraPosition.builder()
+                                .target(LatLng(location.latitude, location.longitude))
+                                .zoom(16f)
+                                .build()
+                        )
+                    )
+                }
+
+                override fun onProviderEnabled(provider: String) {
+                    super.onProviderEnabled(provider)
+                    Log.d(TAG, "Provider Disabled")
+                }
+
+                override fun onProviderDisabled(provider: String) {
+                    Log.d(TAG, "Provider Enabled")
+                    _viewModel.showSnackBarInt.value = R.string.location_required_error
+                }
+            }
+        )
     }
 
-    private fun onPermissionResult(granted: Boolean?) {
+    override fun onPermissionResult(granted: Boolean?) {
         if (granted == true) enableMyLocationBtn(map)
+        else _viewModel.showSnackBarInt.value = R.string.permission_denied_explanation
     }
 
 
@@ -191,9 +201,16 @@ class SelectLocationFragment : BaseFragment(), OnMapReadyCallback {
 
     private fun setPOIClick(googleMap: GoogleMap) {
         googleMap.setOnPoiClickListener { poi ->
+            val latLong = poi.latLng
+
+            val snippets = String.format(
+                "Lat: %1.2f, Long: %2.2f",
+                latLong.latitude, latLong.longitude
+            )
+
             activeMark?.remove()
             activeMark = googleMap.addMarker(
-                MarkerOptions().position(poi.latLng).title(poi.name)
+                MarkerOptions().position(poi.latLng).title(poi.name).snippet(snippets)
             )
             activeMark?.showInfoWindow()
             drawRadiusAroundTheMark(googleMap)

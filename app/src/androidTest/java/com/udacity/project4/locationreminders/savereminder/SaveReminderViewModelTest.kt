@@ -1,22 +1,26 @@
 package com.udacity.project4.locationreminders.savereminder
 
 import android.app.Application
+import android.view.View
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import androidx.fragment.app.testing.FragmentScenario
 import androidx.navigation.NavController
 import androidx.navigation.Navigation
+import androidx.test.core.app.ActivityScenario.ActivityAction
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.IdlingRegistry
 import androidx.test.espresso.action.ViewActions.*
 import androidx.test.espresso.assertion.ViewAssertions.matches
-import androidx.test.espresso.matcher.ViewMatchers.withId
-import androidx.test.espresso.matcher.ViewMatchers.withText
+import androidx.test.espresso.matcher.RootMatchers.withDecorView
+import androidx.test.espresso.matcher.ViewMatchers.*
+import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.MediumTest
 import com.udacity.project4.R
 import com.udacity.project4.getOrAwaitValue
+import com.udacity.project4.locationreminders.RemindersActivity
 import com.udacity.project4.locationreminders.data.ReminderDataSource
 import com.udacity.project4.locationreminders.data.local.LocalDB
 import com.udacity.project4.locationreminders.data.local.RemindersLocalRepository
@@ -25,11 +29,12 @@ import com.udacity.project4.locationreminders.reminderslist.RemindersListViewMod
 import com.udacity.project4.util.DataBindingIdlingResource
 import com.udacity.project4.util.monitorFragment
 import com.udacity.project4.utils.EspressoIdlingResource
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
-import org.hamcrest.MatcherAssert.assertThat
-import org.hamcrest.Matchers.blankOrNullString
-import org.hamcrest.Matchers.not
+import kotlinx.coroutines.test.*
+import org.hamcrest.Matchers.*
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
@@ -43,6 +48,7 @@ import org.koin.test.AutoCloseKoinTest
 import org.koin.test.get
 import org.mockito.Mockito.*
 
+
 @RunWith(AndroidJUnit4::class)
 @ExperimentalCoroutinesApi
 //UI Testing
@@ -52,9 +58,23 @@ class SaveReminderViewModelTest : AutoCloseKoinTest() {
     private lateinit var repository: ReminderDataSource
     private lateinit var appContext: Application
 
-    @Rule
-    @JvmField
+    @get:Rule
+    var activityScenarioRule: ActivityScenarioRule<RemindersActivity> =
+        ActivityScenarioRule(
+            RemindersActivity::class.java
+        )
+
+    private lateinit var decorView: View
+
+    @get:Rule
     var instantTaskExecutorRule = InstantTaskExecutorRule()
+
+    @Before
+    fun getDecorView(){
+        activityScenarioRule.scenario.onActivity { activity ->
+            decorView = activity.window.decorView
+        }
+    }
 
     @Before
     fun setUp() {
@@ -73,7 +93,10 @@ class SaveReminderViewModelTest : AutoCloseKoinTest() {
                     get() as ReminderDataSource
                 )
             }
-            single { RemindersLocalRepository(get()) }
+            single {
+                val dataSource: ReminderDataSource = RemindersLocalRepository(get())
+                dataSource // required cast
+            }
             single { LocalDB.createTestRemindersDao(appContext) }
         }
         //declare a new koin module
@@ -130,10 +153,12 @@ class SaveReminderViewModelTest : AutoCloseKoinTest() {
             .check(matches(withText(R.string.err_enter_title)))
 
         verifyNoInteractions(navController)
+
+        fragmentScenario.close()
     }
 
     @Test
-    fun validData_Success_Navigate() {
+    fun validData_Success_Navigate() = runTest {
         val navController = mock(NavController::class.java)
         val fragmentScenario =
             FragmentScenario.launchInContainer(
@@ -155,7 +180,6 @@ class SaveReminderViewModelTest : AutoCloseKoinTest() {
             }
         }
 
-
         onView(withId(R.id.reminderTitle)).perform(typeText(reminder.title))
         onView(withId(R.id.reminderDescription)).perform(typeText(reminder.description))
 
@@ -163,10 +187,19 @@ class SaveReminderViewModelTest : AutoCloseKoinTest() {
 
         onView(withId(R.id.saveReminder)).perform(click())
 
-        fragmentScenario.onFragment {
-            assertThat(it._viewModel.showToast.getOrAwaitValue(), not(blankOrNullString()))
+        val toastString = appContext.getString(R.string.reminder_saved)
+
+        fragmentScenario.onFragment{
+            assertThat(it._viewModel.showToast.getOrAwaitValue(), equalTo(toastString))
         }
 
+        // source: https://stackoverflow.com/a/54127456/15262615
+        onView(withText(toastString))
+            .inRoot(withDecorView(not(decorView)))// Here we use decorView
+            .check(matches(isDisplayed()))
+
         verify(navController).popBackStack()
+
+        fragmentScenario.close()
     }
 }

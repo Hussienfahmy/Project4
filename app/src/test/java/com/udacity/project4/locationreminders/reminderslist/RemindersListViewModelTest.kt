@@ -4,13 +4,17 @@ import android.app.Application
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.udacity.project4.MainCoroutineRule
 import com.udacity.project4.getOrAwaitValue
 import com.udacity.project4.locationreminders.data.FakeDataSource
 import com.udacity.project4.locationreminders.data.dto.ReminderDTO
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.test.*
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.*
+import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -23,6 +27,9 @@ class RemindersListViewModelTest {
 
     @get:Rule
     var instantExecuteRule = InstantTaskExecutorRule()
+
+    @get:Rule
+    var mainCoroutineRule = MainCoroutineRule()
 
     private lateinit var remindersListViewModel: RemindersListViewModel
     private lateinit var dataSource: FakeDataSource
@@ -44,32 +51,51 @@ class RemindersListViewModelTest {
         dataSource.deleteAllReminders()
         remindersListViewModel.loadReminders()
 
-        assertThat(remindersListViewModel.remindersList.value, equalTo(emptyList()))
+        assertThat(remindersListViewModel.remindersList.value, equalTo(null))
     }
 
 
     @Test
-    fun loadReminders_NotNull() = runTest {
+    fun loadReminders_NotNull( ) = runTest {
         dataSource.saveReminder(ReminderDTO("Title", "Desc", "loc", null, null))
         remindersListViewModel.loadReminders()
+
+        // run all pending coroutines
+        runCurrent()
 
         assertThat(remindersListViewModel.remindersList.getOrAwaitValue(), not(equalTo(null)))
     }
 
     @Test
-    fun shouldReturnError() {
+    fun shouldReturnError() = runTest {
         dataSource.makeErrorWhileGetReminders = true
 
         remindersListViewModel.loadReminders()
 
-        assertThat(remindersListViewModel.showSnackBar.getOrAwaitValue(), not(isEmptyOrNullString()))
+        // run all pending coroutines
+        runCurrent()
+
+        assertThat(remindersListViewModel.showSnackBar.getOrAwaitValue(), equalTo("Test exception"))
     }
 
     @Test
-    fun checkLoading() {
+    fun dataNotFound() = runTest {
+        dataSource.makeRemindersNull()
         remindersListViewModel.loadReminders()
+        // run all pending coroutines
+        runCurrent()
 
-        // after loading the reminders the loading indicator should be false
+        assertThat(remindersListViewModel.showSnackBar.getOrAwaitValue(), equalTo("Reminders not found"))
+    }
+
+    @Test
+    fun checkLoading() = runTest {
+        advanceTimeBy(0)
+        remindersListViewModel.loadReminders()
+        assertThat(remindersListViewModel.showLoading.getOrAwaitValue(), equalTo(true))
+
+        runCurrent()
+
         assertThat(remindersListViewModel.showLoading.getOrAwaitValue(), equalTo(false))
     }
 }

@@ -3,16 +3,21 @@ package com.udacity.project4.locationreminders.savereminder
 import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.IntentSender
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import com.google.android.gms.location.Geofence
-import com.google.android.gms.location.GeofencingClient
-import com.google.android.gms.location.GeofencingRequest
-import com.google.android.gms.location.LocationServices
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult
+import androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult.Companion
+import com.google.android.gms.common.api.ResolvableApiException
+import com.google.android.gms.location.*
+import com.google.android.material.snackbar.Snackbar
 import com.udacity.project4.Constants
+import com.udacity.project4.R
 import com.udacity.project4.base.BaseFragment
 import com.udacity.project4.base.NavigationCommand
 import com.udacity.project4.databinding.FragmentSaveReminderBinding
@@ -20,12 +25,18 @@ import com.udacity.project4.locationreminders.geofence.GeofenceBroadcastReceiver
 import com.udacity.project4.locationreminders.geofence.GeofenceTransitionsService
 import com.udacity.project4.locationreminders.reminderslist.ReminderDataItem
 import org.koin.android.ext.android.inject
+import org.koin.androidx.viewmodel.ext.android.sharedStateViewModel
 
 class SaveReminderFragment : BaseFragment() {
 
     //Get the view model this time as a single to be shared with the another fragment
-    override val _viewModel: SaveReminderViewModel by inject()
+    override val _viewModel: SaveReminderViewModel by sharedStateViewModel()
     private lateinit var geofenceCLint: GeofencingClient
+    private val TAG = "SaveReminderFragment"
+
+    private val resolutionLauncher = registerForActivityResult(StartIntentSenderForResult()) {
+        checkDeviceLocationSettingsAndStartGeofence()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,18 +63,19 @@ class SaveReminderFragment : BaseFragment() {
             }
 
             saveReminder.setOnClickListener {
-                val title = _viewModel.reminderTitle.value
-                val description = _viewModel.reminderDescription.value
-                val location = _viewModel.reminderSelectedLocationStr.value
-                val latitude = _viewModel.latitude.value
-                val longitude = _viewModel.longitude.value
+                if (_viewModel.validateEnteredData()) {
+                    if (!isFineLocationGranted()) {
+                        _viewModel.showSnackBarInt.value = R.string.location_required_error
+                        return@setOnClickListener
+                    }
 
-                val reminderDataItem =
-                    ReminderDataItem(title, description, location, latitude, longitude)
+                    if (!isBackGroundLocationIsGranted()) {
+                        _viewModel.showSnackBarInt.value = R.string.location_required_error
+                        return@setOnClickListener
+                    }
 
-                _viewModel.validateAndSaveReminder(reminderDataItem) {
                     // add the geofence after validate the reminder to ensure there is no null values
-                    addGeoFence(reminderDataItem)
+                    checkDeviceLocationSettingsAndStartGeofence()
                 }
             }
         }
@@ -71,11 +83,54 @@ class SaveReminderFragment : BaseFragment() {
         return binding.root
     }
 
+    private fun checkDeviceLocationSettingsAndStartGeofence(
+        resolve: Boolean = true,
+    ) {
+        val locationRequest = LocationRequest.create().apply {
+            priority = LocationRequest.PRIORITY_LOW_POWER
+        }
+        val builder = LocationSettingsRequest.Builder().addLocationRequest(locationRequest)
+        val settingsClient = LocationServices.getSettingsClient(requireActivity())
+        val locationSettingsResponseTask =
+            settingsClient.checkLocationSettings(builder.build())
+        locationSettingsResponseTask.addOnFailureListener { exception ->
+            if (exception is ResolvableApiException && resolve) {
+                try {
+                    resolutionLauncher.launch(
+                        IntentSenderRequest.Builder(exception.resolution).build()
+                    )
+                } catch (sendEx: IntentSender.SendIntentException) {
+                    Log.d(TAG, "Error getting location settings resolution: " + sendEx.message)
+                }
+            } else {
+                Snackbar.make(
+                    requireView().rootView,
+                    R.string.location_required_error, Snackbar.LENGTH_INDEFINITE
+                ).setAction(android.R.string.ok) {
+                    checkDeviceLocationSettingsAndStartGeofence()
+                }.show()
+            }
+        }
+        locationSettingsResponseTask.addOnCompleteListener {
+            if (it.isSuccessful) {
+                _viewModel.saveReminder()
+                // location is granted and location in ON
+                addGeoFence()
+            }
+        }
+    }
+
     @SuppressLint("MissingPermission")
-    private fun addGeoFence(reminderDataItem: ReminderDataItem) {
+    private fun addGeoFence() {
+        val reminderDataItem = _viewModel.reminderDataItem
+
         val geofence = Geofence.Builder()
             .setRequestId(reminderDataItem.id)
-            .setCircularRegion(reminderDataItem.latitude!!, reminderDataItem.longitude!!, Constants.REMINDER_LOCATION_CIRCLE_RADIUS)
+            .setCircularRegion(
+                reminderDataItem.latitude!!,
+                reminderDataItem.longitude!!,
+                Constants.REMINDER_LOCATION_CIRCLE_RADIUS
+            )
             .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER)
             .setExpirationDuration(3000)
             .build()

@@ -70,7 +70,10 @@ class ReminderListFragmentTest : AutoCloseKoinTest() {
                     get() as ReminderDataSource
                 )
             }
-            single { RemindersLocalRepository(get()) }
+            single {
+                val dataSource: ReminderDataSource = RemindersLocalRepository(get())
+                dataSource // required cast
+            }
             single { LocalDB.createTestRemindersDao(appContext) }
         }
         //declare a new koin module

@@ -2,6 +2,7 @@ package com.udacity.project4.locationreminders.savereminder
 
 import android.app.Application
 import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.Transformations
 import androidx.lifecycle.viewModelScope
 import com.udacity.project4.R
 import com.udacity.project4.base.BaseViewModel
@@ -17,10 +18,22 @@ class SaveReminderViewModel(val app: Application, private val dataSource: Remind
     // below values are set from user input
     val reminderTitle = MutableLiveData<String?>()
     val reminderDescription = MutableLiveData<String?>()
+
     // below values are set from location choose
     val reminderSelectedLocationStr = MutableLiveData<String?>()
     val latitude = MutableLiveData<Double?>()
     val longitude = MutableLiveData<Double?>()
+
+    val reminderDataItem
+        get() = run {
+            val title = reminderTitle.value
+            val description = reminderDescription.value
+            val location = reminderSelectedLocationStr.value
+            val latitude = latitude.value
+            val longitude = longitude.value
+
+            ReminderDataItem(title, description, location, latitude, longitude)
+        }
 
     /**
      * Clear the live data objects to start fresh next time the view model gets called
@@ -34,20 +47,11 @@ class SaveReminderViewModel(val app: Application, private val dataSource: Remind
     }
 
     /**
-     * Validate the entered data then saves the reminder data to the DataSource
-     */
-    fun validateAndSaveReminder(reminderData: ReminderDataItem, onValid: ()-> Unit = {}) {
-        if (validateEnteredData(reminderData)) {
-            onValid()
-            saveReminder(reminderData)
-        }
-    }
-
-    /**
      * Save the reminder to the data source
      */
-    private fun saveReminder(reminderData: ReminderDataItem) {
+    fun saveReminder(): ReminderDataItem {
         showLoading.value = true
+        val reminderData = reminderDataItem
         viewModelScope.launch {
             dataSource.saveReminder(
                 ReminderDTO(
@@ -63,12 +67,16 @@ class SaveReminderViewModel(val app: Application, private val dataSource: Remind
             showToast.value = app.getString(R.string.reminder_saved)
             navigationCommand.value = NavigationCommand.Back
         }
+
+        return reminderData
     }
 
     /**
      * Validate the entered data and show error to the user if there's any invalid data
      */
-    private fun validateEnteredData(reminderData: ReminderDataItem): Boolean {
+    fun validateEnteredData(): Boolean {
+        val reminderData = reminderDataItem
+
         if (reminderData.title.isNullOrBlank()) {
             showSnackBarInt.value = R.string.err_enter_title
             return false

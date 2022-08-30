@@ -1,5 +1,6 @@
 package com.udacity.project4.locationreminders.data.local
 
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.MediumTest
 import com.udacity.project4.locationreminders.data.dto.ReminderDTO
@@ -10,8 +11,7 @@ import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.hamcrest.MatcherAssert.assertThat
-import org.hamcrest.Matchers.`is`
-import org.hamcrest.Matchers.instanceOf
+import org.hamcrest.Matchers.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -28,7 +28,7 @@ class RemindersLocalRepositoryTest {
     private lateinit var scope: TestScope
     
     private lateinit var remindersLocalRepository: RemindersLocalRepository
-    private lateinit var remindersDaoMock: RemindersDao
+    private lateinit var remindersDao: RemindersDao
 
     private val reminderDTO = ReminderDTO(
         "Title",
@@ -39,42 +39,43 @@ class RemindersLocalRepositoryTest {
     )
 
     @Before
-    fun setUp() {
+    fun setUp() = runTest {
         dispatcher = StandardTestDispatcher()
         scope = TestScope(dispatcher)
 
-        remindersDaoMock = mock(RemindersDao::class.java)
+        remindersDao = LocalDB.createTestRemindersDao(ApplicationProvider.getApplicationContext())
 
         remindersLocalRepository = RemindersLocalRepository(
-            remindersDaoMock,
+            remindersDao,
             dispatcher
         )
+
+        remindersDao.saveReminder(reminderDTO)
     }
 
     @Test
     fun getReminders_Success() = scope.runTest {
-        `when`(remindersDaoMock.getReminders()).thenReturn(listOf())
-
         val result = remindersLocalRepository.getReminders()
 
         assertThat(result, `is`(instanceOf(Result.Success::class.java)))
     }
 
     @Test
-    fun getReminders_Error() = scope.runTest {
-        `when`(remindersDaoMock.getReminders()).thenAnswer{ throw IOException() }
+    fun getReminders_NoData() = scope.runTest {
+        remindersDao.deleteAllReminders()
 
         val result = remindersLocalRepository.getReminders()
 
-        assertThat(result, `is`(instanceOf(Result.Error::class.java)))
+        assertThat(result, `is`(instanceOf(Result.Success::class.java)))
+        val data = (result as Result.Success<List<ReminderDTO>>).data
+
+        assertThat(data, empty())
     }
 
     // ----------------------------------------//
 
     @Test
     fun getReminder_Success() = scope.runTest {
-        `when`(remindersDaoMock.getReminderById(anyString())).thenReturn(reminderDTO)
-
         val result = remindersLocalRepository.getReminder(reminderDTO.id)
 
         assertThat(result, `is`(instanceOf(Result.Success::class.java)))
@@ -82,20 +83,13 @@ class RemindersLocalRepositoryTest {
 
     @Test
     fun getReminder_NotFound() = scope.runTest {
-        `when`(remindersDaoMock.getReminderById(anyString())).thenReturn(null)
-
         val result = remindersLocalRepository.getReminder("")
 
         assertThat(result, `is`(instanceOf(Result.Error::class.java)))
-    }
 
-    @Test
-    fun getReminder_Error() = scope.runTest {
-        `when`(remindersDaoMock.getReminderById(anyString())).thenAnswer{ throw IOException() }
+        val message = (result as Result.Error).message
 
-        val result = remindersLocalRepository.getReminder("")
-
-        assertThat(result, `is`(instanceOf(Result.Error::class.java)))
+        assertThat(message, equalTo("Reminder not found!"))
     }
 
     // ------------------------------------------//
@@ -104,13 +98,25 @@ class RemindersLocalRepositoryTest {
     fun saveReminder() = scope.runTest {
         remindersLocalRepository.saveReminder(reminderDTO)
 
-        verify(remindersDaoMock).saveReminder(reminderDTO)
+        val result = remindersLocalRepository.getReminder(reminderDTO.id)
+
+        assertThat(result, `is`(instanceOf(Result.Success::class.java)))
+
+        val data = (result as Result.Success<ReminderDTO>).data
+
+        assertThat(data, equalTo(reminderDTO))
     }
 
     @Test
     fun deleteReminders() = scope.runTest {
         remindersLocalRepository.deleteAllReminders()
 
-        verify(remindersDaoMock).deleteAllReminders()
+        val result = remindersLocalRepository.getReminders()
+
+        assertThat(result, `is`(instanceOf(Result.Success::class.java)))
+
+        val data = (result as Result.Success<List<ReminderDTO>>).data
+
+        assertThat(data, empty())
     }
 }

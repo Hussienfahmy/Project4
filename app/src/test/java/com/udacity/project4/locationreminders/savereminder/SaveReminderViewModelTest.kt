@@ -4,12 +4,16 @@ import android.app.Application
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.udacity.project4.MainCoroutineRule
+import com.udacity.project4.R
 import com.udacity.project4.base.NavigationCommand
 import com.udacity.project4.getOrAwaitValue
 import com.udacity.project4.locationreminders.data.FakeDataSource
 import com.udacity.project4.locationreminders.data.dto.Result
-import com.udacity.project4.locationreminders.reminderslist.ReminderDataItem
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.*
@@ -26,16 +30,27 @@ class SaveReminderViewModelTest {
     @get:Rule
     var instantExecuteRule = InstantTaskExecutorRule()
 
+    @get:Rule
+    var mainCommand = MainCoroutineRule()
+
     private lateinit var saveReminderViewModel: SaveReminderViewModel
     private lateinit var dataSource: FakeDataSource
 
-    private val validReminder = ReminderDataItem(
-        "Title", "Desc", "Loc", 0.0, 0.0
-    )
+    private fun makeReminderInvalid() = saveReminderViewModel.run {
+        reminderTitle.value = ""
+        reminderDescription.value = "Desc"
+        reminderSelectedLocationStr.value = null
+        latitude.value = 0.0
+        longitude.value = 0.0
+    }
 
-    private val invalidReminder = ReminderDataItem(
-        "", "Desc", null, 0.0, 0.0
-    )
+    private fun makeReminderValid() = saveReminderViewModel.run {
+      reminderTitle.value = "Title"
+        reminderDescription.value = "Desc"
+        reminderSelectedLocationStr.value = "Loc"
+        latitude.value = 0.0
+        longitude.value = 0.0
+    }
 
     @Before
     fun setUp() {
@@ -63,32 +78,34 @@ class SaveReminderViewModelTest {
     }
 
     @Test
-    fun validateAndSaveReminder_Valid() = runTest {
-        saveReminderViewModel.validateAndSaveReminder(validReminder)
+    fun saveReminder_Valid() = runTest {
+        makeReminderValid()
+        val validReminder = saveReminderViewModel.saveReminder()
+
+        // run all pending coroutines
+        runCurrent()
 
         assertThat(dataSource.getReminder(validReminder.id), `is`(instanceOf(Result.Success::class.java)))
         assertThat(saveReminderViewModel.navigationCommand.getOrAwaitValue(), equalTo(NavigationCommand.Back))
     }
 
     @Test
-    fun validateAndSaveReminder_InValid() = runTest {
-        saveReminderViewModel.validateAndSaveReminder(invalidReminder)
-
-        assertThat(dataSource.getReminder(invalidReminder.id), `is`(instanceOf(Result.Error::class.java)))
-    }
-
-    @Test
     fun shouldReturnError() {
-        saveReminderViewModel.validateAndSaveReminder(invalidReminder)
+        makeReminderInvalid()
+        saveReminderViewModel.validateEnteredData()
 
-        assertThat(saveReminderViewModel.showSnackBarInt.getOrAwaitValue(), not(equalTo(null)))
+        assertThat(saveReminderViewModel.showSnackBarInt.getOrAwaitValue(), equalTo(R.string.err_enter_title))
     }
 
     @Test
-    fun checkLoading() {
-        saveReminderViewModel.validateAndSaveReminder(validReminder)
+    fun checkLoading() = runTest {
+        this.advanceTimeBy(0)
+        saveReminderViewModel.saveReminder()
+        assertThat(saveReminderViewModel.showLoading.getOrAwaitValue(), equalTo(true))
+
+        this.runCurrent()
+        assertThat(saveReminderViewModel.showLoading.getOrAwaitValue(), equalTo(false))
 
         // after loading the reminders the loading indicator should be false
-        assertThat(saveReminderViewModel.showLoading.getOrAwaitValue(), equalTo(false))
     }
 }
