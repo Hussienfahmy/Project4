@@ -10,9 +10,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.activity.result.IntentSenderRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult
-import androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult.Companion
 import com.google.android.gms.common.api.ResolvableApiException
 import com.google.android.gms.location.*
 import com.google.android.material.snackbar.Snackbar
@@ -24,7 +22,6 @@ import com.udacity.project4.databinding.FragmentSaveReminderBinding
 import com.udacity.project4.locationreminders.geofence.GeofenceBroadcastReceiver
 import com.udacity.project4.locationreminders.geofence.GeofenceTransitionsService
 import com.udacity.project4.locationreminders.reminderslist.ReminderDataItem
-import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.sharedStateViewModel
 
 class SaveReminderFragment : BaseFragment() {
@@ -65,12 +62,12 @@ class SaveReminderFragment : BaseFragment() {
             saveReminder.setOnClickListener {
                 if (_viewModel.validateEnteredData()) {
                     if (!isFineLocationGranted()) {
-                        _viewModel.showSnackBarInt.value = R.string.location_required_error
+                        requestFineLocation()
                         return@setOnClickListener
                     }
 
                     if (!isBackGroundLocationIsGranted()) {
-                        _viewModel.showSnackBarInt.value = R.string.location_required_error
+                        requestBackgroundLocation()
                         return@setOnClickListener
                     }
 
@@ -111,18 +108,18 @@ class SaveReminderFragment : BaseFragment() {
                 }.show()
             }
         }
-        locationSettingsResponseTask.addOnCompleteListener {
-            if (it.isSuccessful) {
-                _viewModel.saveReminder()
-                // location is granted and location in ON
-                addGeoFence()
+        locationSettingsResponseTask.addOnCompleteListener { task ->
+            if (task.isSuccessful) {
+                _viewModel.saveReminder() {
+                    // location is granted and location in ON
+                    addGeoFence(it)
+                }
             }
         }
     }
 
     @SuppressLint("MissingPermission")
-    private fun addGeoFence() {
-        val reminderDataItem = _viewModel.reminderDataItem
+    private fun addGeoFence(reminderDataItem: ReminderDataItem) {
 
         val geofence = Geofence.Builder()
             .setRequestId(reminderDataItem.id)
@@ -132,7 +129,7 @@ class SaveReminderFragment : BaseFragment() {
                 Constants.REMINDER_LOCATION_CIRCLE_RADIUS
             )
             .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER)
-            .setExpirationDuration(3000)
+            .setExpirationDuration(Geofence.NEVER_EXPIRE)
             .build()
 
         val geofenceRequest = GeofencingRequest.Builder()

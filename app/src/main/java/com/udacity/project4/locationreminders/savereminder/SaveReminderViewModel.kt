@@ -1,6 +1,7 @@
 package com.udacity.project4.locationreminders.savereminder
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.Transformations
 import androidx.lifecycle.viewModelScope
@@ -49,7 +50,7 @@ class SaveReminderViewModel(val app: Application, private val dataSource: Remind
     /**
      * Save the reminder to the data source
      */
-    fun saveReminder(): ReminderDataItem {
+    fun saveReminder(onSaveComplete: (ReminderDataItem)->Unit): ReminderDataItem {
         showLoading.value = true
         val reminderData = reminderDataItem
         viewModelScope.launch {
@@ -61,11 +62,12 @@ class SaveReminderViewModel(val app: Application, private val dataSource: Remind
                     reminderData.latitude,
                     reminderData.longitude,
                     reminderData.id
-                )
+                ).also { Log.d("ReminderID", "the id = ${it.id}") }
             )
             showLoading.value = false
             showToast.value = app.getString(R.string.reminder_saved)
             navigationCommand.value = NavigationCommand.Back
+            onSaveComplete(reminderData)
         }
 
         return reminderData

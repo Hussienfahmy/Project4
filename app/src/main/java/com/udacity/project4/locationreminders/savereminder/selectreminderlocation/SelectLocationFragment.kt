@@ -145,7 +145,6 @@ class SelectLocationFragment : BaseFragment(), OnMapReadyCallback {
                 }
 
                 override fun onProviderEnabled(provider: String) {
-                    super.onProviderEnabled(provider)
                     Log.d(TAG, "Provider Disabled")
                 }
 

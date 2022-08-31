@@ -48,6 +48,12 @@ abstract class BaseFragment : Fragment(), MenuProvider {
         requestLocationLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
     }
 
+    fun requestBackgroundLocation() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            requestLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        }
+    }
+
     fun isBackGroundLocationIsGranted(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             isPermissionGranted(
