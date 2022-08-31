@@ -11,6 +11,7 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts.StartIntentSenderForResult
+import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.common.api.ResolvableApiException
 import com.google.android.gms.location.*
 import com.google.android.material.snackbar.Snackbar
@@ -22,6 +23,12 @@ import com.udacity.project4.databinding.FragmentSaveReminderBinding
 import com.udacity.project4.locationreminders.geofence.GeofenceBroadcastReceiver
 import com.udacity.project4.locationreminders.geofence.GeofenceTransitionsService
 import com.udacity.project4.locationreminders.reminderslist.ReminderDataItem
+import com.udacity.project4.utils.LocationSettingsState
+import com.udacity.project4.utils.locationStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.sharedStateViewModel
 
 class SaveReminderFragment : BaseFragment() {
@@ -32,7 +39,8 @@ class SaveReminderFragment : BaseFragment() {
     private val TAG = "SaveReminderFragment"
 
     private val resolutionLauncher = registerForActivityResult(StartIntentSenderForResult()) {
-        checkDeviceLocationSettingsAndStartGeofence()
+        askUserToTurnLocationSettingsOn()
+        startCheckAndSaveFlow()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -60,59 +68,58 @@ class SaveReminderFragment : BaseFragment() {
             }
 
             saveReminder.setOnClickListener {
-                if (_viewModel.validateEnteredData()) {
-                    if (!isFineLocationGranted()) {
-                        requestFineLocation()
-                        return@setOnClickListener
-                    }
-
-                    if (!isBackGroundLocationIsGranted()) {
-                        requestBackgroundLocation()
-                        return@setOnClickListener
-                    }
-
-                    // add the geofence after validate the reminder to ensure there is no null values
-                    checkDeviceLocationSettingsAndStartGeofence()
-                }
+                startCheckAndSaveFlow()
             }
         }
 
         return binding.root
     }
 
-    private fun checkDeviceLocationSettingsAndStartGeofence(
-        resolve: Boolean = true,
-    ) {
-        val locationRequest = LocationRequest.create().apply {
-            priority = LocationRequest.PRIORITY_LOW_POWER
-        }
-        val builder = LocationSettingsRequest.Builder().addLocationRequest(locationRequest)
-        val settingsClient = LocationServices.getSettingsClient(requireActivity())
-        val locationSettingsResponseTask =
-            settingsClient.checkLocationSettings(builder.build())
-        locationSettingsResponseTask.addOnFailureListener { exception ->
-            if (exception is ResolvableApiException && resolve) {
-                try {
-                    resolutionLauncher.launch(
-                        IntentSenderRequest.Builder(exception.resolution).build()
-                    )
-                } catch (sendEx: IntentSender.SendIntentException) {
-                    Log.d(TAG, "Error getting location settings resolution: " + sendEx.message)
+    private fun startCheckAndSaveFlow() {
+        lifecycleScope.launch {
+            if (_viewModel.validateEnteredData()) {
+                if (!isFineLocationGranted()) {
+                    requestFineLocation()
+                    return@launch
                 }
-            } else {
-                Snackbar.make(
-                    requireView().rootView,
-                    R.string.location_required_error, Snackbar.LENGTH_INDEFINITE
-                ).setAction(android.R.string.ok) {
-                    checkDeviceLocationSettingsAndStartGeofence()
-                }.show()
+                if (!isBackGroundLocationIsGranted()) {
+                    requestBackgroundLocation()
+                    return@launch
+                }
+                if (requireActivity().locationStateFlow().first() is LocationSettingsState.OFF) {
+                    askUserToTurnLocationSettingsOn()
+                    return@launch
+                }
+
+                _viewModel.saveReminder { addGeoFence(it) }
             }
         }
-        locationSettingsResponseTask.addOnCompleteListener { task ->
-            if (task.isSuccessful) {
-                _viewModel.saveReminder() {
-                    // location is granted and location in ON
-                    addGeoFence(it)
+    }
+
+    override fun onPermissionResult(granted: Boolean?) {
+        super.onPermissionResult(granted)
+        askUserToTurnLocationSettingsOn()
+    }
+
+    private fun askUserToTurnLocationSettingsOn() {
+        lifecycleScope.launch {
+            val locationState = requireActivity().locationStateFlow().first()
+            if (locationState is LocationSettingsState.OFF) {
+                if (locationState.exception is ResolvableApiException) {
+                    try {
+                        resolutionLauncher.launch(
+                            IntentSenderRequest.Builder(locationState.exception.resolution).build()
+                        )
+                    } catch (sendEx: IntentSender.SendIntentException) {
+                        Log.d(TAG, "Error getting location settings resolution: " + sendEx.message)
+                    }
+                } else {
+                    Snackbar.make(
+                        requireView().rootView,
+                        R.string.location_required_error, Snackbar.LENGTH_INDEFINITE
+                    ).setAction(android.R.string.ok) {
+                        askUserToTurnLocationSettingsOn()
+                    }.show()
                 }
             }
         }
